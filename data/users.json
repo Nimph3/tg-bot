@@ -1,0 +1,35 @@
+{
+  "user_settings": {
+    "898035030": {
+      "first_name": "meow♡",
+      "last_name": "@",
+      "other_parallel": "5",
+      "other_variant": "эко",
+      "parallel": "5",
+      "variant": "соц-эк 1"
+    },
+    "979363879": {},
+    "1084942731": {},
+    "1573132524": {
+      "first_name": "𝕬𝖓𝖌𝖊𝖑𝖚𝖘",
+      "last_name": "𝕸𝖔𝖗𝖙𝖎𝖘",
+      "parallel": "5",
+      "variant": "соц-эк 1",
+      "other_parallel": "5",
+      "other_variant": "соц-эк 5"
+    },
+    "5339651702": {
+      "first_name": "/help",
+      "last_name": "Anton",
+      "parallel": "5",
+      "variant": "эконом 1"
+    }
+  },
+  "known_users": [
+    898035030,
+    979363879,
+    1084942731,
+    1573132524,
+    5339651702
+  ]
+}
