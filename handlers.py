@@ -27,33 +27,26 @@ from utils import is_admin, send_long_text, get_free_time_text
 logger = logging.getLogger(__name__)
 
 async def _ensure_registered(message: Message, state: FSMContext):
-    # Проверяем, что у пользователя есть имя и фамилия.
+    """
+    Раньше бот просил отдельно регистрироваться (вводить имя и фамилию).
+    Теперь считаем, что пользователь всегда "зарегистрирован":
+    просто берём имя/фамилию из профиля Telegram и сохраняем в user_settings.
+    """
     chat_id = message.chat.id
     settings = user_settings.setdefault(chat_id, {})
 
-    if settings.get("first_name") and settings.get("last_name"):
-        return True, settings
+    tg_first = (message.from_user.first_name or "").strip() if message.from_user else ""
+    tg_last = (message.from_user.last_name or "").strip() if message.from_user else ""
 
-    await state.set_state(UserStates.registering_name)
+    if tg_first and not settings.get("first_name"):
+        settings["first_name"] = tg_first
+    if tg_last and not settings.get("last_name"):
+        settings["last_name"] = tg_last
 
-    suggested_first = (
-        message.from_user.first_name
-        or settings.get("first_name")
-        or ""
-    )
-
-    text = (
-        "Вы ещё не зарегистрированы.\n"
-        "Сначала нужно указать своё <b>имя</b>.\n"
-        "Напишите имя одним сообщением."
-    )
-    if suggested_first:
-        text += f"\n(Можно просто отправить: <code>{suggested_first}</code>)"
-
+    known_users.add(chat_id)
     save_state()
-    await message.answer(text)
-    return False, settings
 
+    return True, settings
 
 async def _ensure_my_class(message: Message, state: FSMContext):
     is_reg, settings = await _ensure_registered(message, state)
@@ -79,102 +72,32 @@ async def _ensure_my_class(message: Message, state: FSMContext):
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext) -> None:
+    # Сразу считаем пользователя "зарегистрированным" и переходим к выбору класса.
+    await _ensure_registered(message, state)
+
     chat_id = message.chat.id
     known_users.add(chat_id)
     settings = user_settings.setdefault(chat_id, {})
 
-    if not settings.get("first_name") or not settings.get("last_name"):
-        await state.set_state(UserStates.registering_name)
-
-        suggested_first = message.from_user.first_name or ""
-        text = (
-            "Привет! Давай сначала зарегистрируемся.\n"
-            "Напиши своё <b>имя</b>."
-        )
-        if suggested_first:
-            text += f"\n(Можешь просто отправить: <code>{suggested_first}</code>)"
-
-        save_state()
-        await message.answer(text)
-        return
-
     await state.set_state(UserStates.choosing_my_class)
 
+    # каждый /start позволяет выбрать класс заново
     settings.pop("parallel", None)
     settings.pop("variant", None)
     save_state()
 
+    hello_name = (
+        settings.get("first_name")
+        or (message.from_user.first_name if message.from_user and message.from_user.first_name else None)
+        or "друг"
+    )
+
     await message.answer(
-        f"Привет, {settings.get('first_name', '')}! "
+        f"Привет, {hello_name}!\n"
         f"Давай выберем твой класс.\n"
         f"Сначала выбери <b>КЛАСС</b> (цифру):",
         reply_markup=make_class_keyboard(),
     )
-
-
-@dp.message(UserStates.registering_name)
-async def handle_register_name(message: Message, state: FSMContext) -> None:
-    chat_id = message.chat.id
-    settings = user_settings.setdefault(chat_id, {})
-
-    first_name = message.text.strip()
-    if not first_name:
-        await message.answer("Имя не может быть пустым. Напиши своё <b>имя</b> ещё раз.")
-        return
-
-    settings["first_name"] = first_name
-    save_state()
-
-    await state.set_state(UserStates.registering_surname)
-
-    suggested_last = message.from_user.last_name or ""
-    text = "Отлично! Теперь напиши свою <b>фамилию</b>."
-    if suggested_last:
-        text += f"\n(Можешь просто отправить: <code>{suggested_last}</code>)"
-
-    await message.answer(text)
-
-
-@dp.message(UserStates.registering_surname)
-async def handle_register_surname(message: Message, state: FSMContext) -> None:
-    chat_id = message.chat.id
-    settings = user_settings.setdefault(chat_id, {})
-
-    last_name = message.text.strip()
-    if not last_name:
-        await message.answer("Фамилия не может быть пустой. Напиши свою <b>фамилию</b> ещё раз.")
-        return
-
-    settings["last_name"] = last_name
-    save_state()
-
-    await state.set_state(UserStates.choosing_my_class)
-
-    await message.answer(
-        f"Приятно познакомиться, {settings['first_name']} {settings['last_name']}!\n"
-        f"Теперь выбери свой <b>КЛАСС</b> (цифру):",
-        reply_markup=make_class_keyboard(),
-    )
-
-
-@dp.message(Command("register"))
-async def cmd_register(message: Message, state: FSMContext) -> None:
-    chat_id = message.chat.id
-    settings = user_settings.setdefault(chat_id, {})
-
-    await state.set_state(UserStates.registering_name)
-
-    suggested_first = message.from_user.first_name or settings.get("first_name") or ""
-    text = (
-        "Давай обновим твои данные.\n"
-        "Напиши своё <b>имя</b>."
-    )
-    if suggested_first:
-        text += f"\n(Можешь просто отправить: <code>{suggested_first}</code>)"
-
-    save_state()
-    await message.answer(text)
-
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message) -> None:
@@ -183,29 +106,28 @@ async def cmd_help(message: Message) -> None:
         "• Показывать расписание на сегодня / завтра / всю неделю\n"
         "• Давать расписание другого класса\n"
         "• Сохранять твой класс и профиль\n\n"
-        "Сначала нужно зарегистрироваться (имя и фамилия), "
-        "а потом выбрать свой класс через /start.\n\n"
+        "Сначала нужно выбрать свой класс через /start.\n"
+        "Имя и фамилия берутся из твоего профиля Telegram автоматически.\n\n"
         "Основные кнопки внизу:\n"
         "📅 На сегодня / 📅 На завтра / 📅 На неделю\n"
         "👀 Расписание другого класса — посмотреть чужой класс\n"
         "🔁 Сменить класс — выбрать свой заново"
     )
 
-
 @dp.message(Command("profile"))
 async def cmd_profile(message: Message) -> None:
     chat_id = message.chat.id
-    settings = user_settings.get(chat_id, {})
+    settings = user_settings.setdefault(chat_id, {})
 
-    first_name = settings.get("first_name")
-    last_name = settings.get("last_name")
+    # Имя/фамилия теперь берутся из Telegram автоматически
+    first_name = settings.get("first_name") or (message.from_user.first_name or "")
+    last_name = settings.get("last_name") or (message.from_user.last_name or "")
 
-    if not first_name or not last_name:
-        await message.answer(
-            "Вы ещё не зарегистрированы.\n"
-            "Напишите /start или /register, чтобы указать имя и фамилию."
-        )
-        return
+    if first_name:
+        settings["first_name"] = first_name
+    if last_name:
+        settings["last_name"] = last_name
+    save_state()
 
     parallel = settings.get("parallel")
     variant = settings.get("variant")
@@ -214,8 +136,12 @@ async def cmd_profile(message: Message) -> None:
 
     lines = ["<b>Твой профиль</b>"]
 
-    lines.append(f"Имя: {first_name}")
-    lines.append(f"Фамилия: {last_name}")
+    if first_name:
+        lines.append(f"Имя: {first_name}")
+    if last_name:
+        lines.append(f"Фамилия: {last_name}")
+    if not first_name and not last_name:
+        lines.append("Имя и фамилия не указаны (берутся из профиля Telegram).")
 
     if parallel and variant:
         lines.append(f"Основной класс: <b>{parallel} {variant}</b>")
@@ -224,18 +150,16 @@ async def cmd_profile(message: Message) -> None:
 
     if other_parallel and other_variant:
         lines.append(
-            f"Последний выбранный другой класс: "
+            "Последний выбранный другой класс: "
             f"<b>{other_parallel} {other_variant}</b>"
         )
 
     lines.append(
         "\nКоманды:\n"
-        "• /register — изменить имя и фамилию\n"
         "• /start — выбрать класс заново"
     )
 
     await message.answer("\n".join(lines))
-
 
 # Админские команды
 
